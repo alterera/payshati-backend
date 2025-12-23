@@ -41,11 +41,15 @@ export class ApiExecutorService {
     reportId: number,
     service: string,
   ): Promise<ApiExecutionResult | null> {
+    console.log('=== API Executor: runApi ===');
+    console.log('API ID:', apiId, 'Provider ID:', providerId, 'Report ID:', reportId);
+
     const api = await this.apiRepository.findOne({
       where: { id: apiId },
     });
 
     if (!api) {
+      console.error('API not found for ID:', apiId);
       return {
         status: 'Failed',
         operatorId: '',
@@ -53,12 +57,14 @@ export class ApiExecutorService {
         orderId: '',
       };
     }
+    console.log('API found:', { id: api.id, name: api.apiName, url: api.apiUrl?.substring(0, 50) + '...' });
 
     const report = await this.reportRepository.findOne({
       where: { id: reportId },
     });
 
     if (!report) {
+      console.error('Report not found for ID:', reportId);
       return {
         status: 'Failed',
         operatorId: '',
@@ -66,14 +72,18 @@ export class ApiExecutorService {
         orderId: '',
       };
     }
+    console.log('Report found:', { id: report.id, orderId: report.orderId, number: report.number, amount: report.totalAmount });
 
     // Get provider code
     const providerCode = await this.getProviderCode(apiId, providerId);
+    console.log('Provider code lookup:', { apiId, providerId, providerCode: providerCode || 'NOT FOUND' });
+    
     if (!providerCode) {
+      console.error(`Provider code not found for API ID ${apiId} and Provider ID ${providerId}. Please map this in Admin Panel -> APIs -> Provider Codes Management`);
       return {
         status: 'Failed',
         operatorId: '',
-        remark: `${service} Failed. Provider code not found`,
+        remark: `${service} Failed. Provider code not found for API ID ${apiId}. Please map in admin panel.`,
         orderId: report.orderId,
       };
     }
@@ -95,6 +105,9 @@ export class ApiExecutorService {
     const method = api.apiMethod;
     const headers: Record<string, string> = {};
 
+    console.log('Making API call to:', url);
+    console.log('Method:', method);
+
     try {
       const result = await this.httpHelper.curl(
         url,
@@ -106,7 +119,15 @@ export class ApiExecutorService {
         report.orderId,
       );
 
+      console.log('API Response:', {
+        code: result.code,
+        hasResponse: !!result.response,
+        responseLength: result.response?.length || 0,
+        responsePreview: result.response?.substring(0, 200) || 'NO RESPONSE',
+      });
+
       if (result.code === 0) {
+        console.error('API call failed with code 0 (server under maintenance)');
         return {
           status: 'Failed',
           operatorId: '',
@@ -116,8 +137,11 @@ export class ApiExecutorService {
       }
 
       if (api.apiFormat === 'JSON' && result.response) {
-        return this.parseJsonResponse(result.response, api, report, service);
+        const parsedResult = this.parseJsonResponse(result.response, api, report, service);
+        console.log('Parsed API result:', parsedResult);
+        return parsedResult;
       } else {
+        console.error('Invalid API format or no response:', { format: api.apiFormat, hasResponse: !!result.response });
         return {
           status: 'Failed',
           operatorId: '',
@@ -126,6 +150,7 @@ export class ApiExecutorService {
         };
       }
     } catch (error) {
+      console.error('API call exception:', error.message);
       return {
         status: 'Failed',
         operatorId: '',

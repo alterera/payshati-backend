@@ -103,7 +103,7 @@ export class Report {
   @Column({ name: 'api_partner_order_id', nullable: true })
   apiPartnerOrderId: string;
 
-  @Column({ name: 'order_id', unique: true })
+  @Column({ name: 'order_id' })
   orderId: string;
 
   @Column({ nullable: true })
