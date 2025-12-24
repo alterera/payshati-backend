@@ -192,9 +192,14 @@ export class HomeController {
         }
       : {};
 
+    // Parse ADMIN_HOST - take first value if multiple provided
+    const adminHost = process.env.ADMIN_HOST
+      ? process.env.ADMIN_HOST.split(',')[0].trim()
+      : 'http://localhost:3000';
+
     return {
       name: `${user.firstName} ${user.lastName}`,
-      admin_url: process.env.ADMIN_HOST || 'http://localhost:3000/admin',
+      admin_url: `${adminHost}/admin`,
       day_book: dayBook,
       company_data: companyData,
       type: 'success',
@@ -203,7 +208,7 @@ export class HomeController {
       shop_name: user.outletName,
       mobile: user.mobileNumber,
       email: user.emailAddress,
-      profile: `${process.env.ADMIN_HOST || 'http://localhost:3000'}/profile_pic/${user.profilePic}`,
+      profile: `${adminHost}/profile_pic/${user.profilePic}`,
       announcement: '', // TODO: Fetch from announcements table
       sliders: [], // TODO: Fetch from sliders table
       parent_id: user.parentId,
