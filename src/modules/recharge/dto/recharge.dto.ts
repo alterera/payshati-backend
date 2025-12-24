@@ -63,9 +63,15 @@ export class CheckViewPlanDto extends BaseUserDto {
   @IsNotEmpty()
   provider_id: number;
 
-  @IsNumber()
+  @IsString()
   @IsNotEmpty()
-  state_id: number;
+  @Length(10, 10)
+  @Matches(/^\d{10}$/, { message: 'number must be 10 digits' })
+  number: string;
+
+  @IsNumber()
+  @IsOptional()
+  state_id?: number;
 }
 
 export class DthInfoDto extends BaseUserDto {

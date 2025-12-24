@@ -680,52 +680,31 @@ export class RechargeService {
       });
     }
 
-    // Get provider code
-    const apiProviderCode = await this.apiProviderCodeRepository.findOne({
-      where: {
-        apiId: 6,
-        providerId: checkViewPlanDto.provider_id,
-      },
+    // Get provider code - convert provider ID to operator name (Jio, Idea, BSNL, etc.)
+    const provider = await this.providerRepository.findOne({
+      where: { id: checkViewPlanDto.provider_id },
     });
 
-    console.log('Provider Code Lookup:', {
-      apiId: 6,
-      providerId: checkViewPlanDto.provider_id,
-      found: !!apiProviderCode,
-      providerCode: apiProviderCode?.providerCode || 'NOT FOUND',
-    });
-
-    if (!apiProviderCode || !apiProviderCode.providerCode) {
-      console.error('Provider Code Error: Not found for provider_id:', checkViewPlanDto.provider_id);
+    if (!provider) {
+      console.error('Provider Error: Not found for provider_id:', checkViewPlanDto.provider_id);
       throw new BadRequestException({
         type: 'error',
-        message: 'Provider code not found',
+        message: 'Provider not found',
       });
     }
 
-    // Get state code (mplanStateCode for plans API)
-    const state = await this.stateRepository.findOne({
-      where: { id: checkViewPlanDto.state_id },
+    // Map provider name to operator name expected by mplan.in API
+    // The API expects: "Jio", "Idea", "BSNL", "Airtel", etc.
+    const operatorName = this.mapProviderToOperator(provider.providerName);
+
+    console.log('Provider Details:', {
+      providerId: provider.id,
+      providerName: provider.providerName,
+      mappedOperator: operatorName,
     });
 
-    console.log('State Lookup:', {
-      stateId: checkViewPlanDto.state_id,
-      found: !!state,
-      stateName: state?.stateName,
-      planApiCode: state?.planApiCode,
-      mplanStateCode: state?.mplanStateCode || 'NOT SET',
-    });
-
-    if (!state || !state.mplanStateCode) {
-      console.error('State Code Error: mplan_state_code not found for state_id:', checkViewPlanDto.state_id);
-      throw new BadRequestException({
-        type: 'error',
-        message: 'State code (mplan_state_code) not found. Please configure it in State Management.',
-      });
-    }
-
-    const stateCode = state.mplanStateCode.replace(/\s/g, '%20');
-    const url = `${api.apiUrl}plans.php?apikey=${api.apiKey}&operator=${apiProviderCode.providerCode}&cricle=${stateCode}`;
+    // Build URL exactly like PHP code: plans.php?apikey=...&offer=roffer&tel=...&operator=...
+    const url = `${api.apiUrl}plans.php?apikey=${api.apiKey}&offer=roffer&tel=${checkViewPlanDto.number}&operator=${operatorName}`;
     const orderId = `ROP${Math.floor(10000000000 + Math.random() * 90000000000)}`;
 
     console.log('Constructed URL:', url);
@@ -777,12 +756,24 @@ export class RechargeService {
         });
       }
 
-      return {
-        type: 'success',
-        message: 'Fatch Successfully',
-        data: data.records || [],
-      };
+      // Check if response has records
+      if (data.status === 1 && data.records && Array.isArray(data.records)) {
+        console.log('Plans fetched successfully. Records count:', data.records.length);
+        return {
+          type: 'success',
+          message: 'Fatch Successfully',
+          data: data.records || [],
+        };
+      } else {
+        console.warn('API returned non-success status or no records:', data);
+        return {
+          type: 'success',
+          message: data.Message || data.message || 'No plans available',
+          data: [],
+        };
+      }
     } catch (error: any) {
+      console.error('Error in checkViewPlan:', error);
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -791,6 +782,34 @@ export class RechargeService {
         message: error.message || 'Something went wrong',
       });
     }
+  }
+
+  /**
+   * Map provider name to operator name expected by mplan.in API
+   * API expects: "Jio", "Idea", "BSNL", "Airtel", "Vodafone", etc.
+   */
+  private mapProviderToOperator(providerName: string): string {
+    const name = providerName.toLowerCase().trim();
+    
+    // Map common provider names to API operator names
+    if (name.includes('jio') || name.includes('reliance')) {
+      return 'Jio';
+    }
+    if (name.includes('idea') || name.includes('vi') || name.includes('vodafone idea')) {
+      return 'Idea';
+    }
+    if (name.includes('bsnl')) {
+      return 'BSNL';
+    }
+    if (name.includes('airtel') || name.includes('bharti')) {
+      return 'Airtel';
+    }
+    if (name.includes('vodafone')) {
+      return 'Vodafone';
+    }
+    
+    // Default: return provider name as-is (capitalize first letter)
+    return providerName.charAt(0).toUpperCase() + providerName.slice(1).toLowerCase();
   }
 
   async dthInfo(dthInfoDto: DthInfoDto) {
