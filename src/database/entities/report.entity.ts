@@ -10,6 +10,7 @@ import {
 import { User } from './user.entity';
 import { Provider } from './provider.entity';
 import { Api } from './api.entity';
+import { Service } from './service.entity';
 
 @Entity('reports')
 export class Report {
@@ -71,6 +72,10 @@ export class Report {
 
   @Column({ name: 'service_id', nullable: true })
   serviceId: number;
+
+  @ManyToOne(() => Service, { nullable: true })
+  @JoinColumn({ name: 'service_id' })
+  service: Service;
 
   @Column({ name: 'api_id', nullable: true })
   apiId: number;

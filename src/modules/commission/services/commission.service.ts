@@ -23,36 +23,60 @@ export class CommissionService {
   /**
    * Replaces helpers::SetCommission
    * Calculates and distributes multi-level commission
+   * Matches Laravel logic: Uses child's scheme_id for all parent commission calculations
    */
   async setCommission(reportId: number): Promise<void> {
-    const report = await this.reportRepository.findOne({
-      where: { id: reportId },
-    });
+    console.log('=== setCommission Started ===');
+    console.log('Report ID:', reportId);
 
-    if (!report) {
-      return;
-    }
+    try {
+      const report = await this.reportRepository.findOne({
+        where: { id: reportId },
+      });
 
-    const user = await this.userRepository.findOne({
-      where: { id: report.userId },
-    });
+      if (!report) {
+        console.error('Report not found:', reportId);
+        return;
+      }
 
-    if (!user) {
-      return;
-    }
+      const user = await this.userRepository.findOne({
+        where: { id: report.userId },
+      });
 
-    const schemeId = user.schemeId;
-    const reportIdCom = reportId;
+      if (!user) {
+        console.error('User not found for report:', reportId);
+        return;
+      }
 
-    // Level 1 Commission (Direct Parent)
-    if (user.parentId !== 0 && user.parentId !== 1) {
-      await this.processCommissionLevel(
-        user.parentId,
-        report,
-        schemeId,
-        reportIdCom,
-        'dt_commission',
-      );
+      // Use child's scheme_id for all parent commission calculations (matches Laravel)
+      const schemeId = user.schemeId;
+      const reportIdCom = reportId;
+
+      console.log('Commission setup:', {
+        userId: user.id,
+        parentId: user.parentId,
+        schemeId: schemeId,
+        reportAmount: report.totalAmount,
+        providerId: report.providerId,
+      });
+
+      // Level 1 Commission (Direct Parent) - dt_commission
+      if (user.parentId !== 0 && user.parentId !== 1) {
+        console.log('Processing Level 1 Commission (dt_commission)');
+        await this.processCommissionLevel(
+          user.parentId,
+          report,
+          schemeId,
+          reportIdCom,
+          'dt_commission',
+        );
+      } else {
+        console.log('No parent found or parent is admin (ID 1). Skipping commission.');
+      }
+    } catch (error: any) {
+      console.error('Error in setCommission:', error);
+      console.error('Error stack:', error.stack);
+      // Don't throw - commission failure shouldn't break the recharge
     }
   }
 
@@ -63,20 +87,33 @@ export class CommissionService {
     reportIdCom: number,
     commissionField: string,
   ): Promise<void> {
+    console.log(`Processing commission level: ${commissionField} for parent: ${parentId}`);
+
     const parent = await this.userRepository.findOne({
       where: { id: parentId },
     });
 
     if (!parent || parentId === 1) {
+      console.log(`Parent not found or is admin. Skipping ${commissionField}`);
       return;
     }
 
+    // Use child's scheme_id (not parent's) - matches Laravel logic
     const commission = await this.getCommission(
       report.totalAmount,
-      schemeId,
+      schemeId, // Child's scheme_id
       report.providerId,
       parent.roleId,
     );
+
+    console.log(`Commission calculated:`, {
+      amount: report.totalAmount,
+      schemeId: schemeId,
+      providerId: report.providerId,
+      parentRoleId: parent.roleId,
+      commission: commission,
+      field: commissionField,
+    });
 
     if (commission > 0) {
       const queryRunner = this.dataSource.createQueryRunner();
@@ -125,26 +162,31 @@ export class CommissionService {
         );
 
         await queryRunner.commitTransaction();
+        console.log(`Level ${commissionField} commission saved successfully. Commission: ${commission}`);
 
-        // Process next level if exists
+        // Process next level if exists (matches Laravel 4-level hierarchy)
         if (parent.parentId !== 0 && parent.parentId !== 1) {
           if (commissionField === 'dt_commission') {
+            console.log('Processing Level 2 Commission (md_commission)');
             await this.processCommissionLevel(
               parent.parentId,
               report,
-              schemeId,
+              schemeId, // Still use child's scheme_id
               savedCommissionReport.id,
               'md_commission',
             );
           } else if (commissionField === 'md_commission') {
+            console.log('Processing Level 3 Commission (wt_commission)');
             await this.processCommissionLevel(
               parent.parentId,
               report,
-              schemeId,
+              schemeId, // Still use child's scheme_id
               savedCommissionReport.id,
               'wt_commission',
             );
           }
+        } else {
+          console.log(`No more parent levels. Commission chain complete for ${commissionField}`);
         }
       } catch (error) {
         await queryRunner.rollbackTransaction();
